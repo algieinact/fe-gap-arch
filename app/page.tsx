@@ -12,10 +12,12 @@ const MAX_SESSION_AGE = 1800000; // 30 minutes
 export default function Home() {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [cached, setCached] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [mounted, setMounted] = useState(false);
 
   // Restore session from localStorage on mount
   useEffect(() => {
+    setMounted(true);
+    
     try {
       const stored = localStorage.getItem(SESSION_STORAGE_KEY);
       if (stored) {
@@ -23,7 +25,9 @@ export default function Home() {
 
         // Check if session is not expired (30 minutes)
         if (Date.now() - timestamp < MAX_SESSION_AGE) {
-          setResult(storedResult);
+          // Handle potential wrapper in stored data (legacy fix)
+          const validResult = (storedResult as any).data ?? storedResult;
+          setResult(validResult);
           setCached(storedCached);
         } else {
           // Session expired, clear it
@@ -33,13 +37,12 @@ export default function Home() {
     } catch (error) {
       console.error("Failed to restore session:", error);
       localStorage.removeItem(SESSION_STORAGE_KEY);
-    } finally {
-      setLoading(false);
     }
   }, []);
 
   const handleResult = (newResult: AnalysisResult, isCached: boolean) => {
-    setResult(newResult);
+    const actualResult = (newResult as any).data ?? newResult; // Handle response wrapper
+    setResult(actualResult);
     setCached(isCached);
 
     // Save to localStorage for session persistence
@@ -47,11 +50,12 @@ export default function Home() {
       localStorage.setItem(
         SESSION_STORAGE_KEY,
         JSON.stringify({
-          result: newResult,
+          result: actualResult, // Save the actual result, not the wrapper
           cached: isCached,
           timestamp: Date.now(),
         }),
       );
+      console.log("✅ Session saved to localStorage");
     } catch (error) {
       console.error("Failed to save session:", error);
     }
@@ -63,14 +67,9 @@ export default function Home() {
     localStorage.removeItem(SESSION_STORAGE_KEY);
   };
 
-  if (loading) {
-    return (
-      <main className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 py-12 px-4">
-        <div className="container mx-auto text-center">
-          <div className="text-slate-500">Loading session...</div>
-        </div>
-      </main>
-    );
+  // Show nothing on server-side render to avoid hydration mismatch
+  if (!mounted) {
+    return null;
   }
 
   return (

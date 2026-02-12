@@ -6,11 +6,9 @@ export class ApiClient {
   static async analyzeGap(data: AnalysisRequest, signal?: AbortSignal): Promise<AnalysisResponse> {
     const response = await fetch(`${API_URL}/analyze`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
-      signal, // Support abort signal for cancellation
+      signal,
     });
 
     const result = await response.json();
@@ -19,11 +17,10 @@ export class ApiClient {
       throw new Error((result as ApiError).error || "Analysis failed");
     }
 
-    return result as AnalysisResponse;
-  }
-
-  static async getStats() {
-    const response = await fetch(`${API_URL}/stats`);
-    return response.json();
+    // ✅ Wrap result sesuai struktur yang diharapkan AnalysisForm
+    return {
+      data: result,
+      cached: result.cached ?? false,
+    } as AnalysisResponse;
   }
 }

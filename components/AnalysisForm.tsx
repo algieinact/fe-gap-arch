@@ -8,7 +8,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Upload, CheckCircle2, Zap, AlertCircle } from "lucide-react";
 import { extractPdfText } from "@/lib/utils";
-import { validateAIResponse, cleanupAIResponse } from "@/lib/response-validator";
 
 interface AnalysisFormProps {
   onResult: (result: AnalysisResult, cached: boolean) => void;
@@ -92,51 +91,15 @@ export function AnalysisForm({ onResult }: AnalysisFormProps) {
     };
   }, []);
 
-  // Validation helper functions
-  const validateResumeFormat = (text: string): boolean => {
-    // Resume should contain common sections or keywords
-    const resumeKeywords = /(?:experience|education|skills|objective|summary|employment|qualification|achievement|project|technical|language|certification)/i;
-    return resumeKeywords.test(text);
-  };
-
-  const validateJobDescriptionFormat = (text: string): boolean => {
-    // Job description should contain job-related keywords
-    const jobKeywords = /(?:responsibility|requirement|qualification|skill|experience|role|position|job|duty|candidate|apply|must|should|required|preferred)/i;
-    return jobKeywords.test(text);
-  };
-
-  // Detect if resume and job description might be reversed
-  const detectReversedInputs = (): { isReversed: boolean; confidence: number } => {
-    // Strong resume indicators (more specific to resumes)
-    const strongResumeIndicators = /(?:worked|developed|managed|designed|implemented|responsible for|achievements?|skills|technical|programming|languages?|certifications?|education|graduated|bachelor|master|diploma)/gi;
-
-    // Strong job description indicators (more specific to job posts)
-    const strongJobIndicators = /(?:we are looking|we seek|required|must have|must know|please apply|apply now|job duties|job responsibilities|must be|should be|preferred|we offer|salary|benefits|location|join our|become a|help us)/gi;
-
-    const resumeStrongMatches = (resumeText.match(strongResumeIndicators) || []).length;
-    const jobStrongMatches = (jobDescriptionText.match(strongJobIndicators) || []).length;
-
-    const jobDescStrongMatches = (jobDescriptionText.match(strongResumeIndicators) || []).length;
-    const resumeJobMatches = (resumeText.match(strongJobIndicators) || []).length;
-
-    // Calculate probability of reversal
-    const resumeScore = resumeStrongMatches;
-    const jobScore = jobStrongMatches;
-    const jobDescResumeScore = jobDescStrongMatches;
-    const resumeJobScore = resumeJobMatches;
-
-    // If job description has more resume indicators than actual resume, it might be reversed
-    const reversalRatio = (jobDescResumeScore + resumeJobScore) / (resumeScore + jobScore + 1);
-
-    return {
-      isReversed: reversalRatio > 0.5 && (jobDescResumeScore > resumeScore || resumeJobScore > jobScore),
-      confidence: Math.min(reversalRatio * 100, 100),
-    };
-  };
+  // Validation is now simplified - only check length constraints
+  // The AI is smart enough to handle various input formats!
 
   const validateInputs = (): boolean => {
-    // Check resume format
-    if (resumeText.length < 50) {
+    // Simple validation: only check length constraints
+    // Let the AI handle format variations - it's smart enough!
+    
+    // Check resume length
+    if (resumeText.trim().length < 50) {
       setError("❌ Resume is too short. Please provide at least 50 characters.");
       return false;
     }
@@ -146,13 +109,8 @@ export function AnalysisForm({ onResult }: AnalysisFormProps) {
       return false;
     }
 
-    if (!validateResumeFormat(resumeText)) {
-      setError("❌ Resume format invalid. Please include common resume sections like experience, education, or skills.");
-      return false;
-    }
-
-    // Check job description format
-    if (jobDescriptionText.length < 20) {
+    // Check job description length
+    if (jobDescriptionText.trim().length < 20) {
       setError("❌ Job description is too short. Please provide at least 20 characters.");
       return false;
     }
@@ -162,170 +120,79 @@ export function AnalysisForm({ onResult }: AnalysisFormProps) {
       return false;
     }
 
-    if (!validateJobDescriptionFormat(jobDescriptionText)) {
-      setError("❌ Job description format invalid. Please include job-related keywords like requirements, skills, or responsibilities.");
-      return false;
-    }
-
-    // Check if resume and job description might be reversed
-    const { isReversed, confidence } = detectReversedInputs();
-    if (isReversed) {
-      setError(`⚠️ Warning: Your inputs appear to be reversed (${confidence.toFixed(0)}% confidence). Resume should go in the Resume field, Job Description in the Job Description field.`);
-      return false;
-    }
-
+    // All good! Let the AI do its magic
     return true;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  e.preventDefault();
 
-    // Check online status
-    if (!isOnline) {
-      setError("🔌 No internet connection. Please check your network and try again.");
-      return;
+  if (!isOnline) {
+    setError("🔌 No internet connection.");
+    return;
+  }
+
+  if (isSubmittingRef.current || loading) {
+    setError("❌ Analysis already in progress.");
+    return;
+  }
+
+  if (!validateInputs()) return;
+
+  isSubmittingRef.current = true;
+  setError("");
+  setLoading(true);
+  setLoadingStage(0);
+
+  abortControllerRef.current = new AbortController();
+
+  // Progress stages
+  progressIntervalRef.current = setInterval(() => {
+    setLoadingStage((prev) =>
+      prev < loadingStages.length - 1 ? prev + 1 : prev
+    );
+  }, 1200);
+
+  try {
+    const response = await ApiClient.analyzeGap(
+      {
+        resumeText: resumeText.trim(),
+        jobDescriptionText: jobDescriptionText.trim(),
+      },
+      abortControllerRef.current.signal,
+    );
+
+    // ✅ Cleanup SEBELUM onResult
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
     }
-
-    // Prevent duplicate submissions
-    if (isSubmittingRef.current || loading) {
-      setError("❌ Analysis already in progress. Please wait...");
-      return;
-    }
-
-    // Validate inputs before submitting
-    if (!validateInputs()) {
-      return;
-    }
-
-    isSubmittingRef.current = true;
-    setError("");
-    setLoading(true);
+    setLoading(false);
     setLoadingStage(0);
+    isSubmittingRef.current = false;
 
-    // Create abort controller for cancellation
-    abortControllerRef.current = new AbortController();
+    // ✅ Panggil onResult SETELAH semua state bersih
+    onResult(response.data, response.cached);
 
-    // Simulate progress through stages with timeout
-    let stageCount = 0;
-    progressIntervalRef.current = setInterval(() => {
-      stageCount++;
-      setLoadingStage((prev) => {
-        if (prev < loadingStages.length - 1) {
-          return prev + 1;
-        }
-        return prev;
-      });
-
-      // Stop progress after 8 stages to prevent continuous loop
-      if (stageCount >= loadingStages.length * 2) {
-        if (progressIntervalRef.current) {
-          clearInterval(progressIntervalRef.current);
-          progressIntervalRef.current = null;
-        }
-      }
-    }, 1200);
-
-    // Set timeout for API request
-    timeoutIdRef.current = setTimeout(() => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-      if (progressIntervalRef.current) {
-        clearInterval(progressIntervalRef.current);
-        progressIntervalRef.current = null;
-      }
-      setLoading(false);
-      setError("⏱️ Request timeout. The analysis took too long. Please try again with a retry button.");
-      isSubmittingRef.current = false;
-    }, API_TIMEOUT);
-
-    try {
-      const response = await ApiClient.analyzeGap(
-        {
-          resumeText: resumeText.trim(),
-          jobDescriptionText: jobDescriptionText.trim(),
-        },
-        abortControllerRef.current.signal,
-      );
-
-      if (timeoutIdRef.current) {
-        clearTimeout(timeoutIdRef.current);
-        timeoutIdRef.current = null;
-      }
-
-      if (progressIntervalRef.current) {
-        clearInterval(progressIntervalRef.current);
-        progressIntervalRef.current = null;
-      }
-
-      // Only proceed if component is still mounted
-      if (!componentMountedRef.current) return;
-
-      const data = response.data;
-
-      // Validate AI response quality
-      const validation = validateAIResponse(data, jobDescriptionText);
-
-      // Clean up response (remove duplicates, etc.)
-      const cleanedData = cleanupAIResponse(data);
-
-      if (!validation.isValid) {
-        // Show critical errors
-        setError(`❌ AI response validation failed:\n${validation.errors.join("\n")}`);
-        setResponseValidation({ errors: validation.errors, warnings: [] });
-        return;
-      }
-
-      if (validation.warnings.length > 0) {
-        // Show warnings but allow proceed
-        setResponseValidation({ errors: [], warnings: validation.warnings });
-      }
-
-      onResult(
-        {
-          id: cleanedData.id,
-          missingSkills: cleanedData.missingSkills,
-          learningSteps: cleanedData.learningSteps,
-          interviewQuestions: cleanedData.interviewQuestions,
-          roadmapMarkdown: cleanedData.roadmapMarkdown,
-          createdAt: typeof cleanedData.createdAt === "string" ? cleanedData.createdAt : (cleanedData.createdAt as Date).toISOString(),
-        },
-        response.cached,
-      );
-    } catch (err) {
-      if (timeoutIdRef.current) {
-        clearTimeout(timeoutIdRef.current);
-        timeoutIdRef.current = null;
-      }
-
-      if (progressIntervalRef.current) {
-        clearInterval(progressIntervalRef.current);
-        progressIntervalRef.current = null;
-      }
-
-      // Check if component still mounted
-      if (!componentMountedRef.current) return;
-
-      // Check if error is from abort
-      if (err instanceof Error && err.name === "AbortError") {
-        setError("❌ Analysis cancelled. Feel free to try again.");
-      } else if (!isOnline) {
-        setError("🔌 Network error: You appear to be offline. Please check your connection and try again.");
-      } else if (err instanceof Error && err.message.includes("404")) {
-        setError("❌ API endpoint not found. Please check your configuration.");
-      } else if (err instanceof Error && err.message.includes("502")) {
-        setError("❌ Backend server error. Please try again later.");
-      } else {
-        const errorMessage = err instanceof Error ? err.message : "An error occurred";
-        setError(`❌ ${errorMessage}`);
-      }
-    } finally {
-      setLoading(false);
-      setLoadingStage(0);
-      isSubmittingRef.current = false;
-      abortControllerRef.current = null;
+  } catch (err) {
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
     }
-  };
+
+    if (err instanceof Error && err.name === "AbortError") {
+      setError("❌ Analysis cancelled.");
+    } else if (err instanceof Error && err.message.includes("502")) {
+      setError("❌ Backend server error. Please try again.");
+    } else {
+      setError(`❌ ${err instanceof Error ? err.message : "An error occurred"}`);
+    }
+
+    setLoading(false);
+    setLoadingStage(0);
+    isSubmittingRef.current = false;
+  }
+};
 
   const handleCancel = () => {
     if (abortControllerRef.current) {
@@ -412,7 +279,9 @@ export function AnalysisForm({ onResult }: AnalysisFormProps) {
     }
   };
 
-  const isValid = resumeText.length >= 50 && jobDescriptionText.length >= 20 && validateResumeFormat(resumeText) && validateJobDescriptionFormat(jobDescriptionText);
+  // Simple validation: just check minimum length
+  // Format validation will be done on submit
+  const isValid = resumeText.trim().length >= 50 && jobDescriptionText.trim().length >= 20;
 
   return (
     <Card className="w-full max-w-4xl mx-auto">
