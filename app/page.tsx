@@ -76,8 +76,8 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-200 py-12 px-4">
       <div className="container mx-auto">
-        <header className="text-center mb-10 px-4">
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 sm:px-4 sm:py-2 rounded-full border border-purple-300/30 bg-purple-200/30 mb-4">
+        <header className="text-center mb-14 px-4">
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 sm:px-4 sm:py-2 rounded-full border border-purple-300/30 bg-purple-200/30 mb-6 mt-2">
             <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-purple-500"></div>
             <GradientText colors={["#000fb3", "#75008f", "#330066"]} animationSpeed={10} showBorder={false} className="text-[10px] sm:text-xs uppercase tracking-wide">
               SOLVARA: POWERED ENGINE V1.0
